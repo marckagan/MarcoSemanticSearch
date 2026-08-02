@@ -73,6 +73,8 @@ Use an MLX port of `nomic-embed-text-v1.5`:
 
 This step runs on the same Mac Minis right after transcription, using the same "on-device model, no cloud cost" philosophy already proven out for transcription.
 
+**No harness/daemon process is involved — this is a direct library call, not a server.** Ollama (used elsewhere, e.g. [NotesMCP](../NotesMCP)) wraps its model in a long-running process that exposes a REST API on `localhost:11434`; a caller has to spawn/supervise that process and talk to it over HTTP, even for local calls (see `NotesMCP`'s `_maybe_start_ollama`/`_stop_ollama` in `server.py`, which exists purely to manage that subprocess's lifecycle). MLX has no equivalent — it's an array/ML framework, imported like any other library. Whatever process already does the chunking on the farm (Swift, matching the iOS side, or Python, matching the transcription pipeline) links against `mlx-swift` or the `mlx` Python package directly, loads the converted weights into memory once per worker at startup, and calls the model as an ordinary in-process function — `embed(text) -> [Float]` — inline with the chunking step. No subprocess to spawn, no port to manage, no HTTP round-trip even to itself.
+
 ## 3. Payload format
 
 Extend the existing transcript sync payload with a `chunks` array — no new distribution channel:
