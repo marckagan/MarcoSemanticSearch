@@ -29,6 +29,25 @@ Mac Mini farm (per episode, once)              iOS client (per query, offline)
 
 Nothing server-side changes per-query — embedding happens once at transcription time and is amortized across every listener, same as transcription itself. Nothing client-side needs a new storage engine — chunks and vectors ride in tables next to whatever SQLite schema already holds transcripts.
 
+## Why not just SQLite FTS5?
+
+SQLite already ships FTS5 on iOS for free — no dependency, no new code. Worth being direct about what it does and doesn't get you, since this design adds real complexity (a farm-side embedding step, an on-device model) on top of something that already exists.
+
+**What FTS5 is:** a keyword/token index. It matches on the words actually present in the text (with stemming/prefix support), ranked by term frequency (BM25). It's exact-vocabulary matching — fast, zero-dependency, and genuinely good at what it does.
+
+**What FTS5 structurally cannot do:** match on *meaning* when the words differ. A user who searches "sourdough starter dying" will not find the segment where the guest says "my culture kept going flat and smelling like nail polish remover" — there's no shared vocabulary for FTS5 to index against, no matter how the query is stemmed or tokenized. This isn't a tuning problem, it's what token-matching search is. Podcast transcripts are conversational speech, not written prose with consistent terminology — the same topic gets described differently by different guests, in asides, in answer-the-question-without-restating-it style. That's exactly the gap embedding-based search closes: it compares the *meaning* of the query against the *meaning* of each chunk, not the literal tokens.
+
+**Concretely, what this buys over FTS5 alone:**
+
+| | FTS5 alone | + embeddings (this design) |
+|---|---|---|
+| Exact term / name / jargon match | Yes, and fast | Also yes — the design keeps FTS5 alongside embeddings, not instead of it |
+| Paraphrase / conceptual match ("the part about burnout" finds "I was so exhausted I couldn't get out of bed") | No | Yes |
+| Ranking by relevance to intent, not just term frequency | No — BM25 only knows term stats | Yes — cosine similarity reflects semantic closeness |
+| Works when the user doesn't remember the exact phrase used | No | Yes — this is the common real case for "find that part where..." |
+
+**This design doesn't replace FTS5 — it adds semantic recall on top of it.** The client schema keeps the `transcript_fts` virtual table (see below) specifically so exact-term search stays free and fast; embeddings handle the harder case FTS5 can't reach at all. A production version would likely blend both (hybrid ranking, similar in spirit to the FTS5+vector hybrid already running in NotesMCP) rather than picking one — but even embeddings alone already cover a real, common search failure mode that no amount of FTS5 tuning fixes, because the problem isn't ranking, it's that the words genuinely don't match.
+
 ## 1. Chunking (server, once per episode)
 
 Chunk by sentence boundaries within a target window (e.g. 200–400 characters, ~20–45 seconds of speech), not fixed token counts — transcript segments already carry word/phrase-level timestamps from the transcription step, so each chunk can carry a `(start_time, end_time)` pair for free. That's what lets a search hit jump straight to the right moment in playback, which is the actual product feature — text search is a means to "find the part where they talked about X."
@@ -154,6 +173,26 @@ So the split in Option B isn't a compromise between two runtimes with different 
 - No vector DB, no SQLite extension, no ANN index. Brute-force is fast enough at this scale and keeps the client dependency surface unchanged.
 - No per-query server cost. Embedding happens once per chunk, server-side, amortized like transcription already is.
 - No new sync channel. Chunks + embeddings ride the existing transcript payload/sync path with incremental cursors.
+
+## Is this fully open source? What's not code Marco owns?
+
+**Yes — every piece of this, end to end, is either open source or a free Apple system framework already on the device. No commercial software, no paid API, no license fee anywhere in the pipeline.** But "open source" and "code you own" aren't the same thing — everything below is a third-party dependency of one kind or another, even where it costs nothing. Worth listing plainly, since Marco prefers to limit third-party dependencies and should know exactly what's being taken on and where.
+
+| Component | Role | License | Owned by Marco? | Shipped at runtime? |
+|---|---|---|---|---|
+| SQLite + FTS5 | Storage, keyword search | Public domain | No — OS-bundled | Yes, client (already true today, unchanged) |
+| Accelerate / vDSP | Cosine similarity math | Apple system framework (proprietary, free) | No — OS-bundled | Yes, client |
+| Core ML | ANE-eligible inference (Option B/C) | Apple system framework (proprietary, free) | No — OS-bundled | Yes, client |
+| MLX / MLX Swift | GPU inference, model loading | MIT (open source) | No — third-party Swift package | Yes, farm (both options); client only under Option A |
+| `swift-transformers` (Hugging Face) | WordPiece tokenizer, client side | Apache-2.0 (open source) | No — third-party Swift package | Yes, client |
+| `nomic-embed-text-v1.5` weights | The embedding model itself | Apache-2.0 (open source) | No — third-party model weights | Yes, both sides (as a bundled model file, not code) |
+| `mlx-embeddings` (community, Prince Canuma) | HF → MLX weight conversion | **GPLv3** | No — third-party tool | No — build/conversion-time only, not linked into anything shipped |
+| `coremltools` (Apple) | HF → Core ML weight conversion (Option B/C) | BSD-3-Clause (open source) | No — third-party tool | No — build/conversion-time only |
+
+Two things worth flagging directly:
+
+- **Everything actually shipped at runtime (client app or farm service) is either public-domain, MIT, Apache-2.0, or an Apple system framework that's already part of the OS.** No AGPL, no viral copyleft, nothing that imposes obligations on Marco's own app code.
+- **The one license worth a second look is `mlx-embeddings`, which is GPLv3** — a copyleft license, stricter than everything else in this list. It's only used as an offline conversion tool (HF checkpoint → MLX format), run once on a build machine, never linked into the farm service or the iOS app — that's generally the kind of use GPL's copyleft terms don't reach (no distribution of GPL-covered code, no linking into a distributed binary), but "generally" isn't a substitute for Marco actually confirming that reading holds for how he'd use it, especially given the stated preference to limit third-party dependencies in the first place. The cleaner alternative: check `mlx-community` on Hugging Face for an *already-converted* `nomic-embed-text-v1.5` MLX checkpoint first (mentioned above under "Embedding") — if one exists, `mlx-embeddings` isn't needed at all, and the GPL question disappears entirely rather than needing to be reasoned about.
 
 ## Open questions / next steps
 
