@@ -258,6 +258,8 @@ Marco's ask, reasonably: use the M4's Neural Engine (ANE) for embedding, both on
 
 Only one framework can reach the ANE at all — Core ML. MLX (and PyTorch/TensorFlow-Metal) can only reach CPU or GPU. So "use MLX" and "use the Neural Engine" are mutually exclusive choices, not two knobs on the same framework. That leaves three real options:
 
+**Source:** [Core ML vs MLX: Apple's Two ML Frameworks Compared — Cactus](https://cactuscompute.com/compare/coreml-vs-mlx) — confirms MLX dispatches only to CPU/GPU via Metal, while Core ML is the only framework path to the ANE, with `MLComputeUnits` controlling CPU/GPU/ANE dispatch.
+
 ```mermaid
 flowchart TD
     Q{"Same weights\n(nomic-embed-text-v1.5),\nwhich runtime per side?"}
@@ -367,6 +369,13 @@ Two things worth flagging directly:
 
 - **Everything actually shipped at runtime (client app or farm service) is either public-domain, MIT, Apache-2.0, or an Apple system framework that's already part of the OS.** No AGPL, no viral copyleft, nothing that imposes obligations on Marco's own app code.
 - **The one license worth a second look is `mlx-embeddings`, which is GPLv3** — a copyleft license, stricter than everything else in this list. It's only used as an offline conversion tool (HF checkpoint → MLX format), run once on a build machine, never linked into the farm service or the iOS app — that's generally the kind of use GPL's copyleft terms don't reach (no distribution of GPL-covered code, no linking into a distributed binary), but "generally" isn't a substitute for Marco actually confirming that reading holds for how he'd use it, especially given the stated preference to limit third-party dependencies in the first place. The cleaner alternative: check `mlx-community` on Hugging Face for an *already-converted* `nomic-embed-text-v1.5` MLX checkpoint first (mentioned above under "Embedding") — if one exists, `mlx-embeddings` isn't needed at all, and the GPL question disappears entirely rather than needing to be reasoned about.
+
+**Sources for the license table above:**
+- [`nomic-ai/nomic-embed-text-v1.5` — Hugging Face](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) — Apache-2.0
+- [`ml-explore/mlx-swift` — GitHub](https://github.com/ml-explore/mlx-swift) (MIT LICENSE file) — MLX/MLX Swift
+- [`huggingface/swift-transformers` — GitHub](https://github.com/huggingface/swift-transformers/blob/main/LICENSE) — Apache-2.0
+- [`Blaizzy/mlx-embeddings` — GitHub](https://github.com/Blaizzy/mlx-embeddings) — GPLv3
+- [`apple/coremltools` — GitHub](https://github.com/apple/coremltools) — BSD-3-Clause
 
 ## Open questions / next steps
 
