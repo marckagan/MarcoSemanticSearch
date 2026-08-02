@@ -117,12 +117,32 @@ Marco's ask, reasonably: use the M4's Neural Engine (ANE) for embedding, both on
 - **Core ML is the only Apple framework that dispatches to the ANE**, and even then indirectly — Core ML's scheduler picks CPU/GPU/ANE per-op at runtime based on the model graph, memory pressure, and what's already running; you request `.all` compute units and it decides, not you.
 - Battery-powered iOS is exactly where ANE matters most (perf/watt is the whole point on a phone doing search while the user is also playing audio). The Mac Mini farm is plugged into wall power, so ANE there is a nice-to-have for thermals/rack density, not a requirement — GPU throughput via MLX is a fine choice for the farm regardless of what the client does.
 
-**Practical implication for the architecture:** the two sides don't have to use the same runtime, as long as they produce numerically-equivalent embeddings from the same underlying weights:
+Only one framework can reach the ANE at all — Core ML. MLX (and PyTorch/TensorFlow-Metal) can only reach CPU or GPU. So "use MLX" and "use the Neural Engine" are mutually exclusive choices, not two knobs on the same framework. That leaves three real options:
 
-- **Server (Mac Mini farm):** MLX is a reasonable choice as designed above — GPU-bound, no battery constraint, and MLX's checkpoint-conversion tooling (`mlx-embeddings`) is the more mature path for getting `nomic-embed-text-v1.5` off Hugging Face.
-- **Client (iOS):** if ANE utilization is a real requirement (not just nice-to-have), convert the *same* `nomic-embed-text-v1.5` weights to Core ML (`coremltools`) instead of — or in addition to — the MLX Swift path, and request `.cpuAndNeuralEngine`. This changes the client sample's `QueryEmbedder` implementation (Core ML `MLModel` instead of an MLX graph) but nothing else in this design — chunk storage, the sync payload, and the brute-force cosine search are all runtime-agnostic, since they only care about the final float vector, not what produced it.
-- **The hazard either way is the same one flagged above, just doubled:** tokenizer parity and the `"search_document: "`/`"search_query: "` prefix convention must match exactly across *whichever two runtimes* end up on each side (MLX↔MLX, or MLX-server↔CoreML-client). A Core ML conversion is a second opportunity to introduce a subtle preprocessing mismatch versus the server, on top of the one already called out for MLX. Budget a tokenizer-parity golden-set test regardless of which path is chosen.
-- Query-time embedding on a single short string is cheap enough (a few hundred tokens through a small BERT-sized encoder) that GPU-via-MLX on iOS is also perfectly viable if Core ML conversion turns out to be more friction than it's worth — this is a "nice to have if the ANE path is easy" decision, not a blocking one for the rest of the architecture.
+### Option A — MLX everywhere (GPU, both sides)
+
+- **Pros:** one runtime, one conversion pipeline, one thing to keep numerically consistent. `mlx-embeddings` is the most mature path for pulling `nomic-embed-text-v1.5` off Hugging Face today. Least engineering risk.
+- **Cons:** no ANE utilization anywhere. On the farm this barely matters (wall power, GPU throughput is already the right target). On iOS it means embedding a query burns GPU cycles instead of the much more power-efficient ANE — worse for battery life on exactly the device where that's supposed to matter.
+- **When it's the right call:** if "Neural Engine" was really shorthand for "fast and efficient," not a hard requirement, and query embedding turns out to be cheap enough on GPU that the difference is unmeasurable in practice (plausible — it's a few hundred tokens through a small encoder, likely sub-50ms either way).
+
+### Option B — MLX on the farm, Core ML on iOS (split runtime)
+
+- **Pros:** gets ANE on the device where perf/watt actually matters (phone, on-battery, possibly running while audio is also playing), while keeping the farm on MLX's easier conversion tooling.
+- **Cons:** two separate model-conversion pipelines from the same source weights (`mlx-embeddings` for the farm, `coremltools` for the client). That's two chances to introduce a subtle preprocessing mismatch — tokenizer differences, prefix handling, normalization — between server and client. This is the failure mode called out below: it degrades relevance silently, no crash, just worse search results that are hard to root-cause.
+- **Mitigation:** a small golden-set test — same 20–30 strings, assert token-id sequences match exactly between whatever tokenizes for MLX and whatever tokenizes for Core ML — run once, before trusting any relevance numbers. Not expensive, just easy to skip and then regret.
+- **When it's the right call:** if ANE on iOS is a real product requirement (battery life claims, thermal budget while podcast + search running concurrently), not just "would be nice."
+
+### Option C — Core ML everywhere
+
+- **Pros:** single runtime again, ANE-eligible on both sides (the farm's M4s have ANE too — Core ML's scheduler could use it there as well, though with less benefit than on iOS since power isn't constrained).
+- **Cons:** Core ML's HF-to-CoreML conversion tooling (`coremltools`) is less turnkey for a BERT-style embedding model than MLX's path — expect more manual work getting `nomic-embed-text-v1.5` converted and validated. Also, Core ML doesn't let you force ANE — you request `.cpuAndNeuralEngine` and its scheduler decides per-op at runtime based on the graph and what else is running; for a model architecture with unsupported ops it can silently fall back to CPU/GPU with no error.
+- **When it's the right call:** if consistency (one pipeline, no cross-runtime drift risk) is valued over conversion ease, and someone's willing to do the more manual Core ML conversion work up front.
+
+### Recommendation
+
+Option B is the pragmatic middle: MLX's conversion tooling is genuinely better for standing up the farm quickly, and Core ML's ANE access is genuinely valuable on iOS specifically for the battery/thermal reason. Option A is the fallback if the ANE win turns out to be marginal in benchmarking, or if the tokenizer-parity mitigation feels like too much process for a first version — ship Option A first, measure iOS power draw during search, and revisit Option B only if it's actually a problem.
+
+**Practical implication for the architecture either way:** the two sides don't have to use the same runtime, as long as they produce numerically-equivalent embeddings from the same underlying weights. Swapping runtimes only changes the client sample's `QueryEmbedder` implementation (Core ML `MLModel` instead of an MLX graph) — chunk storage, the sync payload, and the brute-force cosine search are all runtime-agnostic, since they only care about the final float vector, not what produced it. The one hazard that applies regardless of which option is chosen: tokenizer parity and the `"search_document: "`/`"search_query: "` prefix convention must match exactly across whichever two runtimes end up on each side.
 
 ## What this deliberately does not do
 
