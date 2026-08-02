@@ -63,7 +63,7 @@ Keep a small overlap (one sentence) between consecutive chunks so a topic mentio
 
 ## 2. Embedding (server, once per episode)
 
-Use an MLX port of `nomic-embed-text-v1.5`:
+Use an MLX port of `nomic-embed-text-v1.5` (see [NOMIC_EMBED.md](NOMIC_EMBED.md) for why this model specifically — comparison to alternatives including Apple's own on-device `NLContextualEmbedding`, license, update cadence, and estimated M4 embedding throughput):
 
 - Check `mlx-community` on Hugging Face for an existing converted checkpoint first.
 - Otherwise, convert from `nomic-ai/nomic-embed-text-v1.5` HF safetensors using `mlx-embeddings`.
