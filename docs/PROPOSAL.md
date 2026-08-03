@@ -156,7 +156,7 @@ FTS5 ships in iOS's SQLite already — a keyword-match fallback/complement costs
 
 ## 5. On-device query
 
-1. Embed the query text with the same MLX model, `"search_query: "` prefix, fp16 output.
+1. Embed the query text on-device, `"search_query: "` prefix, fp16 output — via Core ML on iOS per the recommended split (Option B, see "Neural Engine vs. GPU" below); the farm's MLX model and the client's Core ML model must be conversions of the *same* `nomic-embed-text-v1.5` weights so the vector spaces match.
 2. `SELECT chunk_id, embedding FROM transcript_chunks WHERE episode_id = ?` (or `WHERE episode_id IN (downloaded_ids)` for cross-episode search) — a normal SQLite read, embeddings come back as BLOBs.
 3. Brute-force cosine similarity in Swift using `Accelerate`/`vDSP` batched dot products. No ANN index needed:
    - Single episode: a few hundred chunks — sub-millisecond.
@@ -379,9 +379,10 @@ Two things worth flagging directly:
 
 ## Open questions / next steps
 
-- Confirm an `mlx-community` nomic-embed-text checkpoint exists, or budget time for the `mlx-embeddings` conversion + quantization pass.
+- Confirm an `mlx-community` nomic-embed-text checkpoint exists for the farm side, or budget time for the `mlx-embeddings` conversion + quantization pass.
 - MLX Swift needs a BERT-style encoder (nomic-embed-text's architecture) — likely adapted from existing MLX Swift examples rather than written from scratch.
-- Validate tokenizer parity (server conversion pipeline vs. `swift-transformers` WordPiece) with a golden set of (text → token ids) pairs before trusting any relevance numbers.
+- Separately, convert the same `nomic-embed-text-v1.5` weights to Core ML via `coremltools` for the client (Option B's recommended runtime — see "Neural Engine vs. GPU" above); this is a second, independent conversion pipeline from the farm's MLX one and needs its own validation pass.
+- Validate tokenizer parity **across both conversions** — MLX Swift's tokenizer vs. `swift-transformers`' WordPiece tokenizer feeding the Core ML model — with a golden set of (text → token ids) pairs before trusting any relevance numbers. This is the single most important validation step given the farm and client now deliberately run different runtimes.
 - Decide chunk window size empirically against a few real transcripts — 200–400 chars is a starting point, not a measured optimum.
 
 See [server-sample/](../server-sample) and [client-sample/](../client-sample) for illustrative (not production-ready) code sketches of the chunk+embed step and the client store/query engine, [NOMIC_EMBED.md](NOMIC_EMBED.md) for the embedding model deep dive, and [PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md) for iOS 27 opportunities and minimum-iOS-version compatibility.

@@ -4,6 +4,20 @@ Two related questions: what new-generation platform capabilities are worth build
 
 ## New iOS 27 / current-platform capabilities worth using
 
+All three additions below are strictly layered on top of the core mechanism already designed — none of them change how chunking, embedding, storage, or brute-force search work:
+
+```mermaid
+flowchart BT
+    Base["Core search (this design's baseline)\nCore ML query embed + brute-force cosine + SQLite\nWorks everywhere -- no Apple Intelligence needed"]
+    Speech["3. SpeechAnalyzer/SpeechTranscriber\nclient-side fallback for un-synced episodes\n(iOS 26+, on-device only)"]
+    Siri["1. Assistant Schemas\nSiri-invoked search entry point\n(iOS 26+, Apple Intelligence hardware)"]
+    FM["2. Foundation Models\nsynthesized natural-language answers\n(iOS 26+, Apple Intelligence hardware)"]
+
+    Base --> Speech
+    Base --> Siri
+    Siri --> FM
+```
+
 ### 1. App Intents "Assistant Schemas" — directly strengthens the Siri feature already in the roadmap
 
 iOS 27 (WWDC 2026) pushes Siri toward being "more capable, more contextual, more personal," with a new **Assistant Schemas** layer on top of App Intents specifically for richer Siri/Apple Intelligence integration, and cross-device chat history. This isn't a new idea for this design — it's validation of, and the concrete API surface for, the `FindEpisodeByTopicIntent` feature already proposed in [PROPOSAL.md's feature roadmap](PROPOSAL.md#5-siri--app-intents-integration--what-was-that-podcast-about-x). Conforming the episode `AppEntity` and the search intent to an Assistant Schema (rather than a plain custom `AppIntent`) is what unlocks Siri's more natural-language, context-aware invocation of it, versus the more rigid fixed-phrase Shortcuts-style invocation basic App Intents have had since iOS 16.

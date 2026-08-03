@@ -76,6 +76,14 @@ Nomic ships new embedding models on the order of **roughly annually, not continu
 - **v1.5**: followed shortly after, adding Matryoshka Representation Learning and later multimodal alignment (a paired `nomic-embed-vision-v1.5` sharing the same embedding space). This is the version this design targets.
 - **v2-moe**: released February 2025 — a materially different architecture (Mixture-of-Experts, multilingual), not an in-place update to v1.5. Confirms Nomic's pattern: new capability tiers ship as new model names, not silent version bumps to an existing one.
 
+```mermaid
+timeline
+    title nomic-embed-text release history
+    Feb 2024 : v1 released (original Nomic Embed)
+    2024 : v1.5 released — Matryoshka Representation Learning, later multimodal alignment (this design's pick)
+    Feb 2025 : v2-moe released — Mixture-of-Experts, ~100 languages (new model family, not a v1.5 update)
+```
+
 Practical implication: **pin to a specific Hugging Face commit/revision hash of `nomic-embed-text-v1.5`**, not just the model name, and treat any move to a newer model (v2-moe or whatever comes after) as a deliberate, coordinated re-index — every existing chunk embedding, farm-side and already-synced to clients, becomes incompatible with a new model's vector space. This isn't a hypothetical: it's the same category of hazard as the tokenizer-parity issue already flagged in PROPOSAL.md, just at the "which model" level instead of "which runtime" level.
 
 Sources: [Hugging Face model card](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5), [Nomic Embed Text V2 announcement](https://simonwillison.net/2025/Feb/12/nomic-embed-text-v2/), [arXiv: Training Sparse Mixture Of Experts Text Embedding Models](https://arxiv.org/abs/2502.07972)
@@ -87,6 +95,8 @@ Sources: [Hugging Face model card](https://huggingface.co/nomic-ai/nomic-embed-t
 - Free for commercial use, no royalty, no revenue-share, no "contact us for a commercial license" tier (unlike some open-weight models that use non-commercial or field-of-use-restricted licenses).
 - Only real obligation is standard Apache 2.0 boilerplate — preserve the license/copyright notice if redistributing the model itself. Doesn't impose anything on Marco's own app code (Apache 2.0 is permissive, not copyleft).
 - Same license as `nomic-embed-text-v2-moe`, `swift-transformers`, and — per the ownership table in [PROPOSAL.md](PROPOSAL.md#is-this-fully-open-source-whats-not-code-marco-owns) — the least restrictive tier among this project's third-party dependencies (contrast with `mlx-embeddings`' GPLv3, which is a build-tool-only dependency for exactly this reason).
+
+Sources: [`nomic-ai/nomic-embed-text-v1.5` — Hugging Face](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (license field, Apache-2.0), [`nomic-ai/nomic-embed-text-v1.5-GGUF` — Hugging Face](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF) (mirrors the same license)
 
 ## How long does chunking + embedding a 2-hour transcript take on an M4?
 

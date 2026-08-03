@@ -1,20 +1,29 @@
 // QueryEngine.swift
 //
 // Illustrative sketch of the on-device query path: embed the search query
-// with the same MLX nomic-embed-text model used server-side, then brute-force
-// cosine-compare against stored chunk vectors using Accelerate/vDSP. No ANN
-// index -- at personal-corpus scale (a few hundred chunks per episode, up to
-// tens of thousands across a downloaded library) a flat scan is single-digit
-// milliseconds, so it isn't worth the dependency/complexity of an index.
+// via Core ML (the recommended client runtime -- see docs/PROPOSAL.md,
+// "Neural Engine vs. GPU: MLX doesn't get you there", Option B), then
+// brute-force cosine-compare against stored chunk vectors using
+// Accelerate/vDSP. No ANN index -- at personal-corpus scale (a few hundred
+// chunks per episode, up to tens of thousands across a downloaded library)
+// a flat scan is single-digit milliseconds, so it isn't worth the
+// dependency/complexity of an index.
 //
-// NOT production code -- the MLX model-loading API is illustrative; see
+// Farm and client deliberately use different runtimes on the SAME
+// nomic-embed-text-v1.5 weights: MLX server-side (GPU, batch throughput --
+// see server-sample/ChunkAndEmbed.swift), Core ML client-side (requests the
+// Neural Engine, matching iOS's power+latency priorities). Both must be
+// conversions of the identical checkpoint, or the two sides' vectors won't
+// be comparable -- see PROPOSAL.md's tokenizer-parity note.
+//
+// NOT production code -- the Core ML model-loading API is illustrative; see
 // docs/PROPOSAL.md "Open questions" for what needs to be wired up for real
-// (BERT-style encoder in MLX Swift, swift-transformers WordPiece tokenizer).
+// (HF -> Core ML conversion via coremltools, swift-transformers WordPiece
+// tokenizer, a golden-set tokenizer-parity test against the farm's MLX path).
 
 import Foundation
 import Accelerate
-// import MLX
-// import MLXNN
+// import CoreML
 
 struct SearchHit {
     let chunkId: String
@@ -25,7 +34,13 @@ struct SearchHit {
 }
 
 enum QueryEmbedder {
-    // static let model = try! MLXEmbeddingModel.load(checkpoint: "mlx-community/nomic-embed-text-v1.5")
+    // static let model: MLModel = {
+    //     let config = MLModelConfiguration()
+    //     config.computeUnits = .cpuAndNeuralEngine  // request the ANE; Core ML's
+    //                                                 // scheduler still decides per-op
+    //     return try! MLModel(contentsOf: NomicEmbedTextV1_5.urlOfModelInThisBundle,
+    //                          configuration: config)
+    // }()
 
     /// Embeds the search query. Must use "search_query: " -- the counterpart
     /// to the server's "search_document: " prefix used when embedding chunks
@@ -35,9 +50,14 @@ enum QueryEmbedder {
     static func embed(_ query: String) throws -> [Float16] {
         let prefixed = "search_query: " + query
         // let tokens = tokenizer.encode(prefixed)
-        // let output = model(tokens)  // [768] fp32
-        // return output.map { Float16($0) }
-        fatalError("wire up to the real MLX embedding model")
+        // let input = try MLDictionaryFeatureProvider(dictionary: [
+        //     "input_ids": MLMultiArray(tokens.ids),
+        //     "attention_mask": MLMultiArray(tokens.attentionMask),
+        // ])
+        // let output = try model.prediction(from: input)
+        // let embedding = output.featureValue(for: "embedding")!.multiArrayValue!
+        // return (0..<768).map { Float16(embedding[$0].floatValue) }
+        fatalError("wire up to the real Core ML embedding model")
     }
 }
 
