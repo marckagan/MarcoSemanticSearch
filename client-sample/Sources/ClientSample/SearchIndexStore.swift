@@ -74,7 +74,7 @@ final class SearchIndexStore {
                 sqlite3_bind_int(stmt, 3, Int32(chunk.startMs))
                 sqlite3_bind_int(stmt, 4, Int32(chunk.endMs))
                 sqlite3_bind_text(stmt, 5, chunk.text, -1, SQLITE_TRANSIENT)
-                embeddingData.withUnsafeBytes { raw in
+                _ = embeddingData.withUnsafeBytes { raw in
                     sqlite3_bind_blob(stmt, 6, raw.baseAddress, Int32(raw.count), SQLITE_TRANSIENT)
                 }
                 sqlite3_bind_text(stmt, 7, chunk.contentHash, -1, SQLITE_TRANSIENT)

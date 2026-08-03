@@ -20,6 +20,11 @@
 // docs/PROPOSAL.md "Open questions" for what needs to be wired up for real
 // (HF -> Core ML conversion via coremltools, swift-transformers WordPiece
 // tokenizer, a golden-set tokenizer-parity test against the farm's MLX path).
+//
+// Tests: see ../../Tests/ClientSampleTests. QueryEmbedder's prefixing logic
+// and QueryEngine.rank's cosine-ranking are pure and tested directly against
+// hand-crafted vectors; QueryEmbedder.embed() itself remains untested since
+// it ends in fatalError() until a real Core ML model is wired up.
 
 import Foundation
 import Accelerate
@@ -58,14 +63,24 @@ enum QueryEmbedder {
     //
     // static func unload() { loadedModel = nil }  // call on memory pressure / idle timeout
 
+    static let queryPrefix = "search_query: "
+
+    /// Applies nomic-embed-text's asymmetric "search_query: " prefix. Pulled
+    /// out as a pure function specifically so this -- the single most
+    /// important correctness requirement in this design -- can be
+    /// unit-tested without a real model wired up. See
+    /// Tests/ClientSampleTests/QueryEmbedderTests.swift.
+    static func prefixedForQuery(_ text: String) -> String {
+        queryPrefix + text
+    }
+
     /// Embeds the search query. Must use "search_query: " -- the counterpart
     /// to the server's "search_document: " prefix used when embedding chunks
     /// for storage (see server-sample/ChunkAndEmbed.swift). Using the wrong
     /// prefix, or none, silently degrades relevance rather than erroring --
     /// this is the single most important thing to get right and verify.
     static func embed(_ query: String) throws -> [Float16] {
-        let prefixed = "search_query: " + query
-        // let tokens = tokenizer.encode(prefixed)
+        // let tokens = tokenizer.encode(prefixedForQuery(query))
         // let input = try MLDictionaryFeatureProvider(dictionary: [
         //     "input_ids": MLMultiArray(tokens.ids),
         //     "attention_mask": MLMultiArray(tokens.attentionMask),
@@ -73,7 +88,7 @@ enum QueryEmbedder {
         // let output = try model().prediction(from: input)
         // let embedding = output.featureValue(for: "embedding")!.multiArrayValue!
         // return (0..<768).map { Float16(embedding[$0].floatValue) }
-        fatalError("wire up to the real Core ML embedding model")
+        fatalError("wire up to the real Core ML embedding model for: \(prefixedForQuery(query))")
     }
 }
 
@@ -83,7 +98,8 @@ enum QueryEngine {
     /// synced episode's chunks are already local.
     static func search(query: String, episodeId: String, store: SearchIndexStore, topK: Int = 8) throws -> [SearchHit] {
         let chunks = try store.fetchChunks(episodeIds: [episodeId])
-        return try rank(query: query, chunks: chunks, topK: topK)
+        let queryVector = try QueryEmbedder.embed(query)
+        return rank(queryVector: queryVector, chunks: chunks, topK: topK)
     }
 
     /// Searches across a user's downloaded/kept episodes. Bounded by whatever
@@ -91,13 +107,17 @@ enum QueryEngine {
     /// to manage, it rides the existing download/retention lifecycle.
     static func searchLibrary(query: String, downloadedEpisodeIds: [String], store: SearchIndexStore, topK: Int = 20) throws -> [SearchHit] {
         let chunks = try store.fetchChunks(episodeIds: downloadedEpisodeIds)
-        return try rank(query: query, chunks: chunks, topK: topK)
+        let queryVector = try QueryEmbedder.embed(query)
+        return rank(queryVector: queryVector, chunks: chunks, topK: topK)
     }
 
-    private static func rank(query: String, chunks: [StoredChunk], topK: Int) throws -> [SearchHit] {
+    /// Pure cosine-ranking step, deliberately separated from the embedding
+    /// call above so it can be unit-tested with hand-crafted vectors --
+    /// independent of a real Core ML model being wired up. See
+    /// Tests/ClientSampleTests/QueryEngineTests.swift.
+    static func rank(queryVector queryVecFp16: [Float16], chunks: [StoredChunk], topK: Int) -> [SearchHit] {
         guard !chunks.isEmpty else { return [] }
 
-        let queryVecFp16 = try QueryEmbedder.embed(query)
         let queryVec = queryVecFp16.map { Float($0) }
         var queryNorm: Float = 0
         vDSP_svesq(queryVec, 1, &queryNorm, vDSP_Length(queryVec.count))

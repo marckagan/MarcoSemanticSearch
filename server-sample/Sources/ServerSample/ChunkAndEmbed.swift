@@ -9,6 +9,12 @@
 // Substitute whatever the real MLX Swift embedding checkpoint/loader exposes
 // (see docs/PROPOSAL.md, "Open questions" — an mlx-community checkpoint or a
 // conversion via mlx-embeddings, plus a BERT-style encoder in MLX Swift).
+//
+// Tests: see ../../Tests/ServerSampleTests. Chunker.chunk and Embedder's
+// prefixing logic are pure and tested directly; embed()/PayloadBuilder.build
+// remain untested since they end in fatalError() until a real MLX model is
+// wired up (fatalError can't be caught, so there's nothing a test could
+// assert about that path yet).
 
 import Foundation
 // import MLX
@@ -96,13 +102,23 @@ enum Embedder {
     // Placeholder for whatever the real MLX Swift embedding model exposes.
     // static let model = try! MLXEmbeddingModel.load(checkpoint: "mlx-community/nomic-embed-text-v1.5")
 
+    static let documentPrefix = "search_document: "
+
+    /// Applies nomic-embed-text's asymmetric "search_document: " prefix.
+    /// Pulled out as a pure function specifically so this -- the single most
+    /// important correctness requirement in this design (see PROPOSAL.md's
+    /// tokenizer-parity note) -- can be unit-tested without a real model
+    /// wired up. See Tests/ServerSampleTests/EmbedderTests.swift.
+    static func prefixedForStorage(_ text: String) -> String {
+        documentPrefix + text
+    }
+
     /// Embeds chunk text for storage. Must use the "search_document: " prefix
     /// to match nomic-embed-text's asymmetric training — this is required for
     /// correct retrieval, not a stylistic choice. The client uses
     /// "search_query: " for the same model when embedding search queries.
     static func embedForStorage(_ text: String) throws -> [Float16] {
-        let prefixed = "search_document: " + text
-        return try embed(prefixed)
+        try embed(prefixedForStorage(text))
     }
 
     private static func embed(_ text: String) throws -> [Float16] {
@@ -145,10 +161,19 @@ enum PayloadBuilder {
 
 // MARK: - Example driver (one episode, one Mac Mini worker)
 
+private struct EpisodePayload: Encodable {
+    let episodeId: String
+    let chunks: [TranscriptChunk]
+
+    enum CodingKeys: String, CodingKey {
+        case episodeId = "episode_id", chunks
+    }
+}
+
 func processEpisode(episodeId: String, segments: [TranscriptSegment]) throws -> Data {
     let chunks = try PayloadBuilder.build(episodeId: episodeId, segments: segments)
     let encoder = JSONEncoder()
-    return try encoder.encode(["episode_id": episodeId, "chunks": chunks] as [String: Any])
+    return try encoder.encode(EpisodePayload(episodeId: episodeId, chunks: chunks))
     // In practice: attach `chunks` to the existing transcript sync payload
     // rather than emitting a standalone document, and hand off to whatever
     // distribution path already ships transcripts to clients.
