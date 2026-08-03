@@ -384,4 +384,4 @@ Two things worth flagging directly:
 - Validate tokenizer parity (server conversion pipeline vs. `swift-transformers` WordPiece) with a golden set of (text → token ids) pairs before trusting any relevance numbers.
 - Decide chunk window size empirically against a few real transcripts — 200–400 chars is a starting point, not a measured optimum.
 
-See [server-sample/](../server-sample) and [client-sample/](../client-sample) for illustrative (not production-ready) code sketches of the chunk+embed step and the client store/query engine.
+See [server-sample/](../server-sample) and [client-sample/](../client-sample) for illustrative (not production-ready) code sketches of the chunk+embed step and the client store/query engine, [NOMIC_EMBED.md](NOMIC_EMBED.md) for the embedding model deep dive, and [PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md) for iOS 27 opportunities and minimum-iOS-version compatibility.
