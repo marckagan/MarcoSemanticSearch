@@ -15,4 +15,14 @@ Illustrative sketch of the Mac Mini farm's chunk + embed step (see [../docs/PROP
 swift test
 ```
 
-**Verification status:** these tests were written and confirmed to **compile cleanly** (`swift build --build-tests`), but could not be run end-to-end in the environment they were authored in — a sandboxed macOS setup with only Command Line Tools installed, no full Xcode, and neither XCTest nor the Swift Testing runtime library available to actually execute a test bundle. The logic was hand-traced against the actual `Chunker.chunk` algorithm to check expected outputs, but that's not a substitute for actually running them. Run `swift test` for real in a normal Xcode-equipped environment before trusting these results.
+On a normal Xcode-equipped Mac that's all it takes. In a Command Line Tools-only environment (no full Xcode.app), the linker needs to be pointed at `Testing.framework` and its runtime support library explicitly:
+
+```bash
+swift test \
+  -Xswiftc -F -Xswiftc /Library/Developer/CommandLineTools/Library/Developer/Frameworks \
+  -Xswiftc -target -Xswiftc arm64-apple-macosx13.0 \
+  -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/Frameworks \
+  -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/usr/lib
+```
+
+**Verification status: run for real, all passing.** 7 tests across 2 suites (`ChunkerTests`, `EmbedderTests`), executed with the flags above in a Command Line Tools-only environment — not just compiled, actually observed to pass via Swift Testing's runner.
