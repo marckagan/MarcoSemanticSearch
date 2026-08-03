@@ -160,8 +160,32 @@ FTS5 ships in iOS's SQLite already — a keyword-match fallback/complement costs
 2. `SELECT chunk_id, embedding FROM transcript_chunks WHERE episode_id = ?` (or `WHERE episode_id IN (downloaded_ids)` for cross-episode search) — a normal SQLite read, embeddings come back as BLOBs.
 3. Brute-force cosine similarity in Swift using `Accelerate`/`vDSP` batched dot products. No ANN index needed:
    - Single episode: a few hundred chunks — sub-millisecond.
-   - Cross-episode over a user's downloaded/kept library: even at tens of thousands of chunks, flat fp16/fp32 cosine via `vDSP` is single-digit milliseconds — brute force comfortably covers personal-scale corpora, and cross-compiling something like `sqlite-vec` or reaching for `usearch` is only worth revisiting if a corpus genuinely outgrows that (rough rule of thumb: high hundreds of thousands of chunks).
+   - Cross-episode over a user's downloaded/kept library: even at tens of thousands of chunks, flat fp16/fp32 cosine via `vDSP` is single-digit milliseconds — brute force comfortably covers personal-scale corpora. See "How far does brute force scale?" below for the actual numbers behind that claim and what comes next if it's ever outgrown.
 4. Rank top-k, return `(chunk_id, score, start_ms)`, jump playback to `start_ms`.
+
+### How far does brute force scale?
+
+Worth being concrete rather than hand-wavy about this, since "brute force is fine" is doing a lot of work in the design above.
+
+**The single-episode search tier never has a scaling question at all.** A chunk count of a few hundred per episode is fixed by the chunking design (PROPOSAL.md's "Chunking" section) — it doesn't grow with library size, listening history, or anything else. Brute force is the permanent answer there, not a stage in an evolution.
+
+**The scaling question only applies to the cross-episode tier**, bounded by "downloaded + 30-day listened backlog" (the retention design above). Working the actual compute cost:
+
+- Cosine similarity over N chunks is N dot products of length 768 — roughly `2 × N × 768` floating-point operations (multiply-add pairs), plus a norm per chunk if not precomputed.
+- **Cheap optimization worth doing before ever reaching for an index:** store chunk embeddings pre-normalized (L2 norm = 1) at write time. Cosine similarity between two unit vectors is just their dot product — no per-query norm computation needed at all, and it's a one-line change to `ChunkAndEmbed.swift`'s output step, not new infrastructure.
+- Apple's `Accelerate` framework (`vDSP`/BLAS-backed, using NEON/AMX where available) sustains multiple GFLOPS on a single core for exactly this kind of batched dot-product workload. At a conservative few GFLOPS: **100,000 chunks ≈ 150M FLOPs ≈ tens of milliseconds; 1,000,000 chunks ≈ 1.5B FLOPs ≈ a few hundred milliseconds.**
+- **Translating chunk counts into something concrete:** at ~120 chunks/hour of audio (used elsewhere in this doc for payload-size estimates), 100,000 chunks is **~830 hours of retained transcript** — roughly 400–800 typical episodes' worth, held *simultaneously* in the cross-episode index. Given the retention design actually bounds this to "downloaded + finished in the last 30 days," even a very heavy listener (3+ hours/day, every day) accumulates on the order of **~90 hours ≈ 10,000 chunks** in that 30-day window — an order of magnitude below where brute force even starts to feel slow. **Under this design's own retention rules, a real user is unlikely to ever approach the range where brute force becomes a problem** — this isn't "fine for now," it's fine by construction, as long as retention stays bounded the way it's designed.
+
+That said, if the design changes later (e.g. unbounded whole-library-forever retention, or a "search everything I've ever listened to" mode), here's the actual evolution path, in order of how much new complexity each step costs:
+
+```mermaid
+flowchart LR
+    A["Tier 0: flat brute-force\n(this design)\nvDSP dot products\nGood to ~100K-1M chunks"] --> B["Tier 1: same computation,\nGPU-accelerated\nMetal/MPS matrix-vector multiply\nAnother ~10-50x headroom,\nno new dependency"]
+    B --> C["Tier 2: true ANN index\nusearch (HNSW), Swift bindings\nApproximate, not exact --\ntrades small accuracy loss\nfor sublinear query cost"]
+```
+
+- **Tier 1 — move the same brute-force computation to the GPU**, before reaching for an approximate index at all. A matrix-vector multiply (all chunk vectors × one query vector) parallelizes naturally across GPU threads via Metal Performance Shaders (`MPSMatrix`) or a small custom compute shader — likely another 10–50x throughput over CPU `vDSP` for the exact same, still-exact result. This is a step people often skip past straight to an ANN index, but it's strictly simpler (no new index structure to build/maintain, no approximation) and pushes the "brute force is fine" ceiling up by roughly an order of magnitude before any accuracy tradeoff is needed.
+- **Tier 2 — `usearch`** (mentioned as the fallback earlier in this project's design discussions) if a corpus genuinely outgrows even GPU brute force — realistically only relevant at very high hundreds of thousands to millions of chunks. It's the better fit here than `sqlite-vec` specifically because of this design's "don't touch SQLite" constraint (see "The constraint that shapes everything" above): `usearch` has native Swift bindings and builds its index structure *from* vectors that stay exactly where they already are — plain BLOBs in `transcript_chunks` — rather than requiring a SQLite extension to be cross-compiled and loaded into the client's database engine. The tradeoff to weigh if this tier is ever reached: HNSW-style indexes are approximate (a small, tunable chance of missing the true nearest neighbor in exchange for sublinear query cost) and carry their own memory overhead for the graph structure, on top of the raw vectors.
 
 ## Search scope: two tiers, one mechanism
 
