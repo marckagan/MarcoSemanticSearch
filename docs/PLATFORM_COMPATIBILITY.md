@@ -42,6 +42,12 @@ iOS 26 introduced `SpeechAnalyzer`/`SpeechTranscriber`, a new on-device speech-t
 
 **Sources:** [Apple's New Transcription APIs Blow Past Whisper in Speed Tests — MacRumors](https://www.macrumors.com/2025/06/18/apple-transcription-api-faster-than-whisper/), [Bring Advanced Speech-to-Text to Your App with SpeechAnalyzer — Level Up Coding](https://levelup.gitconnected.com/bring-advanced-speech-to-text-to-your-app-with-speechanalyzer-6ed25a84586c), [On-Device Speech Transcription with Apple SpeechAnalyzer — Callstack](https://www.callstack.com/blog/on-device-speech-transcription-with-apple-speechanalyzer)
 
+### 4. A breaking change to plan around: On-Demand Resources is deprecated as of iOS 27
+
+Not a new capability — a sunsetting one, worth flagging because it's easy to reach for by habit. If the embedding model (see [NOMIC_EMBED.md's delivery section](NOMIC_EMBED.md#does-the-model-need-to-live-on-every-ios-device-size-and-delivery)) or any other large asset is delivered post-install rather than bundled, **On-Demand Resources — the traditional mechanism for this — is deprecated starting exactly iOS 27**, the platform this design targets. Apple's guidance is to use the newer **Background Assets** framework instead. Nothing in this design currently depends on ODR, but it's worth ruling out explicitly now rather than having someone reach for it later out of habit and build on a framework Apple is actively sunsetting on day one of the target OS.
+
+**Sources:** [On-demand resources size limit — App Store Connect Help](https://developer.apple.com/help/app-store-connect/reference/app-uploads/on-demand-resources-size-limits/) (deprecation notice), [Meet Background Assets — WWDC22](https://developer.apple.com/videos/play/wwdc2022/110403/)
+
 ## Is this design backward compatible? What iOS versions does it actually require?
 
 Short answer: **the core search feature has a low floor; the Siri/AI layers on top have a much higher one — and that split is exactly the graceful-degradation story you want.** Every component has a different minimum version, so the honest answer is "it depends which piece":
