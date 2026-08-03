@@ -33,14 +33,30 @@ struct SearchHit {
     let score: Float
 }
 
+// Loaded lazily on first search, not at app launch or as an eager static
+// singleton -- Core ML's own guidance is to load large models on demand and
+// release them under memory pressure or extended inactivity, since a reload
+// benefits from Core ML's on-disk compiled-model cache (see NOMIC_EMBED.md,
+// "Disk size, RAM, and delivery"). A real implementation would wrap this in
+// something like an actor holding an optional MLModel?, populated on first
+// `embed(_:)` call and cleared on a memory-pressure notification or an idle
+// timer, rather than the always-resident `static let` pattern that would be
+// tempting to reach for here.
 enum QueryEmbedder {
-    // static let model: MLModel = {
+    // private static var loadedModel: MLModel?
+    //
+    // private static func model() throws -> MLModel {
+    //     if let loadedModel { return loadedModel }
     //     let config = MLModelConfiguration()
     //     config.computeUnits = .cpuAndNeuralEngine  // request the ANE; Core ML's
     //                                                 // scheduler still decides per-op
-    //     return try! MLModel(contentsOf: NomicEmbedTextV1_5.urlOfModelInThisBundle,
-    //                          configuration: config)
-    // }()
+    //     let model = try MLModel(contentsOf: NomicEmbedTextV1_5.urlOfModelInThisBundle,
+    //                              configuration: config)
+    //     loadedModel = model
+    //     return model
+    // }
+    //
+    // static func unload() { loadedModel = nil }  // call on memory pressure / idle timeout
 
     /// Embeds the search query. Must use "search_query: " -- the counterpart
     /// to the server's "search_document: " prefix used when embedding chunks
@@ -54,7 +70,7 @@ enum QueryEmbedder {
         //     "input_ids": MLMultiArray(tokens.ids),
         //     "attention_mask": MLMultiArray(tokens.attentionMask),
         // ])
-        // let output = try model.prediction(from: input)
+        // let output = try model().prediction(from: input)
         // let embedding = output.featureValue(for: "embedding")!.multiArrayValue!
         // return (0..<768).map { Float16(embedding[$0].floatValue) }
         fatalError("wire up to the real Core ML embedding model")
