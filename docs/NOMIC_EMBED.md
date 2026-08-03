@@ -33,7 +33,7 @@ Worth untangling three different things here, since they get conflated easily:
 
 **Apple's Foundation Models framework** (introduced WWDC 2025, expanded WWDC 2026) gives apps direct access to the on-device LLM behind Apple Intelligence — a 3B-parameter model on iOS 26+/current macOS, now with image input and a hybrid on-device/Private Cloud Compute/third-party-model routing layer as of WWDC 2026. This is a **generative** model (text in, text out, tool-calling, guided generation) — it doesn't expose a public embedding-vector API. It's not a competitor to nomic-embed-text-v1.5 for this design's purpose; it's a different capability (better suited to, say, generating the natural-language Siri response text in the App Intents feature, not to producing the vectors that power the search itself).
 
-**`NLContextualEmbedding`** (Apple's `NaturalLanguage` framework, iOS 17+/current macOS) is the real candidate — and it's the same one already in production use in a related project: `NotesMCP`'s Spotlight `semantic_rank` feature (`sources/shared/nl_embedder.py`) uses this exact API today, specifically *because* it needs no Ollama/no bundled model.
+**`NLContextualEmbedding`** (Apple's `NaturalLanguage` framework, iOS 17+/current macOS) is the real candidate — an on-device semantic-embedding API that ships with the OS, specifically useful when you want embedding-based ranking with no bundled model and no Ollama-style local server.
 
 ### Head-to-head: nomic-embed-text-v1.5 vs. `NLContextualEmbedding`
 

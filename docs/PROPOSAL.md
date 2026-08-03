@@ -9,7 +9,7 @@ Marco's app already has two things worth protecting:
 
 That rules out a hosted vector-search service (defeats offline + adds per-query server cost) and rules out swapping in `sqlite-vec` or similar (extra native dependency, cross-compilation for iOS, and a new moving part in the client). It leaves: **compute the expensive part once, on the farm, and ship a small enough result that the client can brute-force it.**
 
-This is the same shape as the `nomic-embed-text` + FTS5 hybrid search already running in [NotesMCP](../NotesMCP) — chunk + embed once, store vectors, compare at query time — except there Ollama embeds the *query* live on every search (server-side, always-on daemon). On iOS there's no Ollama; the equivalent step needs an on-device model small enough to run in an app. That's the one new capability this design requires.
+This is the standard shape for hybrid keyword+vector search — chunk + embed once, store vectors, compare at query time — adapted for a client that has to do the query-side embedding itself, fully offline, rather than calling out to a server-side embedding process. That's the one new capability this design requires: an on-device model small enough to run in an app.
 
 ## Architecture
 
@@ -53,7 +53,7 @@ SQLite already ships FTS5 on iOS for free — no dependency, no new code. Worth 
 | Ranking by relevance to intent, not just term frequency | No — BM25 only knows term stats | Yes — cosine similarity reflects semantic closeness |
 | Works when the user doesn't remember the exact phrase used | No | Yes — this is the common real case for "find that part where..." |
 
-**This design doesn't replace FTS5 — it adds semantic recall on top of it.** The client schema keeps the `transcript_fts` virtual table (see below) specifically so exact-term search stays free and fast; embeddings handle the harder case FTS5 can't reach at all. A production version would likely blend both (hybrid ranking, similar in spirit to the FTS5+vector hybrid already running in NotesMCP) rather than picking one — but even embeddings alone already cover a real, common search failure mode that no amount of FTS5 tuning fixes, because the problem isn't ranking, it's that the words genuinely don't match.
+**This design doesn't replace FTS5 — it adds semantic recall on top of it.** The client schema keeps the `transcript_fts` virtual table (see below) specifically so exact-term search stays free and fast; embeddings handle the harder case FTS5 can't reach at all. A production version would likely blend both (hybrid ranking — combine FTS5's exact-match hits with embedding-similarity hits, rather than picking one) — but even embeddings alone already cover a real, common search failure mode that no amount of FTS5 tuning fixes, because the problem isn't ranking, it's that the words genuinely don't match.
 
 ## 1. Chunking (server, once per episode)
 
@@ -73,7 +73,7 @@ Use an MLX port of `nomic-embed-text-v1.5` (see [NOMIC_EMBED.md](NOMIC_EMBED.md)
 
 This step runs on the same Mac Minis right after transcription, using the same "on-device model, no cloud cost" philosophy already proven out for transcription.
 
-**No harness/daemon process is involved — this is a direct library call, not a server.** Ollama (used elsewhere, e.g. [NotesMCP](../NotesMCP)) wraps its model in a long-running process that exposes a REST API on `localhost:11434`; a caller has to spawn/supervise that process and talk to it over HTTP, even for local calls (see `NotesMCP`'s `_maybe_start_ollama`/`_stop_ollama` in `server.py`, which exists purely to manage that subprocess's lifecycle). MLX has no equivalent — it's an array/ML framework, imported like any other library.
+**No harness/daemon process is involved — this is a direct library call, not a server.** A tool like Ollama, by contrast, wraps its model in a long-running process that exposes a REST API on `localhost:11434`; a caller has to spawn/supervise that process and talk to it over HTTP, even for local calls, and manage that subprocess's lifecycle (start it, keep it alive, shut it down cleanly on exit). MLX has no equivalent — it's an array/ML framework, imported like any other library.
 
 Marco's farm pipeline is Swift end to end, which simplifies this further: the same worker process that already does transcription and chunking links against `mlx-swift` directly (`import MLX` / `import MLXNN`), loads the converted `nomic-embed-text-v1.5` weights into memory once at process startup, and calls the model as an ordinary in-process function — `embed(text: String) -> [Float]` — inline with the chunking step, in the same language, same binary, same process. No subprocess to spawn, no port to manage, no HTTP round-trip even to itself, and no cross-language boundary between transcription/chunking and embedding either — it's all one Swift call stack. This is exactly what `server-sample/ChunkAndEmbed.swift` sketches (the `Embedder` enum's `import MLX` / `import MLXNN` placeholders are where the real `mlx-swift` calls go).
 
@@ -160,7 +160,7 @@ FTS5 ships in iOS's SQLite already — a keyword-match fallback/complement costs
 2. `SELECT chunk_id, embedding FROM transcript_chunks WHERE episode_id = ?` (or `WHERE episode_id IN (downloaded_ids)` for cross-episode search) — a normal SQLite read, embeddings come back as BLOBs.
 3. Brute-force cosine similarity in Swift using `Accelerate`/`vDSP` batched dot products. No ANN index needed:
    - Single episode: a few hundred chunks — sub-millisecond.
-   - Cross-episode over a user's downloaded/kept library: even at tens of thousands of chunks, flat fp16/fp32 cosine via `vDSP` is single-digit milliseconds. This is the same conclusion the NotesMCP-adjacent design conversation reached independently — brute force comfortably covers personal-scale corpora, and cross-compiling something like `sqlite-vec` or reaching for `usearch` is only worth revisiting if a corpus genuinely outgrows that (rough rule of thumb: high hundreds of thousands of chunks).
+   - Cross-episode over a user's downloaded/kept library: even at tens of thousands of chunks, flat fp16/fp32 cosine via `vDSP` is single-digit milliseconds — brute force comfortably covers personal-scale corpora, and cross-compiling something like `sqlite-vec` or reaching for `usearch` is only worth revisiting if a corpus genuinely outgrows that (rough rule of thumb: high hundreds of thousands of chunks).
 4. Rank top-k, return `(chunk_id, score, start_ms)`, jump playback to `start_ms`.
 
 ## Search scope: two tiers, one mechanism
@@ -321,7 +321,7 @@ So the split in Option B isn't a compromise between two runtimes with different 
 
 **Yes — every piece of this, end to end, is either open source or a free Apple system framework already on the device. No commercial software, no paid API, no license fee anywhere in the pipeline.** But "open source" and "code you own" aren't the same thing — everything below is a third-party dependency of one kind or another, even where it costs nothing. Worth listing plainly, since Marco prefers to limit third-party dependencies and should know exactly what's being taken on and where.
 
-To head off a mix-up with a separate, existing project ([NotesMCP](../NotesMCP)): **this design does not use Ollama anywhere.** Ollama is a macOS-only always-on daemon; it can't run on iOS, so it was never a candidate for the client side, and MLX/Core ML replace it on the farm side too (see "Neural Engine vs. GPU" above). The only thing this design borrows from that model-serving family of tools is the same *model weights* (`nomic-embed-text`) — served through a completely different, iOS-compatible runtime.
+Worth stating plainly since it's a common assumption for local-model setups: **this design does not use Ollama anywhere.** Ollama is a macOS-only always-on daemon; it can't run on iOS, so it was never a candidate for the client side, and MLX/Core ML replace it on the farm side too (see "Neural Engine vs. GPU" above). The only thing this design borrows from that model-serving family of tools is the same *model weights* (`nomic-embed-text`) — served through a completely different, iOS-compatible runtime.
 
 ### Every piece, owned vs. third-party
 
