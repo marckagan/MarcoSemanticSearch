@@ -1,4 +1,4 @@
-# MarcoFTS
+# MarcoSemanticSearch
 
 On-device semantic search for podcast transcripts, without changing the client's SQLite storage or adding a heavyweight search stack.
 
