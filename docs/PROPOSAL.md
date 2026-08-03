@@ -26,7 +26,7 @@ flowchart LR
     subgraph client ["iOS client — per query, offline"]
         direction TB
         B1["1. Sync pulls new/changed\nchunks (incremental, cursor)"] --> B2["2. Store chunks + fp16\nvectors as BLOBs in SQLite"]
-        B2 --> B3["3. On search: embed query\non-device (\"search_query: \" prefix)"]
+        B2 --> B3["3. On search: embed query\non-device ('search_query: ' prefix)"]
         B3 --> B4["4. Brute-force cosine vs.\nstored vectors (Accelerate/vDSP)"]
         B4 --> B5["5. Rank, jump to\nchunk's timestamp"]
     end
