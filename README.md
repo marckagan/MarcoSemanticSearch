@@ -16,7 +16,7 @@ A few things worth knowing before reading further:
 
 ## Feature roadmap at a glance
 
-Beyond the core search feature, the proposal sketches six extensions that build naturally on the same mechanism — none of them require rethinking chunking, embedding, storage, or search:
+Beyond the core search feature, the proposal sketches nine extensions. The first six build naturally on the same on-device mechanism; the last three (generative Siri Q&A, auto-chapters, and catalog-wide server search) go further and are called out as such:
 
 1. **[Single-episode search](docs/FEATURE_ROADMAP.md#12-single-episode-and-cross-episode-on-device-search)** — "find the part where they talked about X," always available.
 2. **[Cross-episode search](docs/FEATURE_ROADMAP.md#12-single-episode-and-cross-episode-on-device-search)** — across whatever's downloaded or recently finished on-device.
@@ -24,6 +24,9 @@ Beyond the core search feature, the proposal sketches six extensions that build 
 4. **[30-day searchable backlog](docs/FEATURE_ROADMAP.md#4-30-day-searchable-backlog-for-listened-episodes)** — keeps an episode searchable for a month after finishing it, even after the audio's deleted.
 5. **["What was that podcast about X?" via Siri](docs/FEATURE_ROADMAP.md#5-siri--app-intents-integration--what-was-that-podcast-about-x)** — App Intents + Assistant Schemas, fully on-device, no network round-trip.
 6. **[Show/host/date metadata in the index](docs/FEATURE_ROADMAP.md#6-showhostdate-metadata-in-the-index)** — so a search hit resolves to a real answer ("Show Name, hosted by X, aired on Y"), not just a timestamp.
+7. **[Siri generative Q&A over an episode](docs/FEATURE_ROADMAP.md#7-siri-generative-qa-over-an-episode--summarize-todays-atp-episode-what-are-the-topics-1–2-sentence-chapter-summaries)** — "summarize today's ATP episode," "what are the topics," per-chapter summaries; generation via Foundation Models, not retrieval, and worth reading for the hard 4,096-token context-window constraint that shapes it.
+8. **[Auto-generated chapters](docs/FEATURE_ROADMAP.md#8-auto-generated-chapters-for-podcasts-without-them)** — for podcasts that don't ship native chapter markers, reusing the search embeddings already computed rather than a separate pipeline.
+9. **[Server-based catalog-wide semantic search](docs/FEATURE_ROADMAP.md#9-server-based-semantic-search-across-the-podcast-catalog-enhances-discovery-distinct-from-personal-search)** — podcast *discovery* across shows the user hasn't listened to, distinct from personal on-device search; the one place in this design where a per-query server cost is the right call, not a compromise.
 
 Full detail on each in [docs/FEATURE_ROADMAP.md](docs/FEATURE_ROADMAP.md).
 
